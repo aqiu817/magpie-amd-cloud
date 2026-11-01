@@ -10,7 +10,7 @@
 
 - **插件 → 已安装**：AMD Cloud 卡片（图标、版本）。
 - **供应商行**：`amd-cloud (AMD Cloud, N models)  signed in`。多把 key 重复登录即多账号。
-- **账号额度卡片 + `magpie quota`**：「花费（24h 滚动）」窗口——已用百分比、`$已用 / $上限`、重置倒计时（滚动周期：从本周期首次计费起 24 小时后重置，非固定零点）；账号旁显示组织 ID（`oneclick-org-…`）。
+- **账号额度卡片 + `magpie quota`**：「点数（24h 滚动）」窗口——已用百分比、`已用 / 上限 pts`、重置倒计时（滚动周期：从本周期首次计费起 24 小时后重置，非固定零点）；账号旁显示组织 ID（`oneclick-org-…`）。控制台把这套数字叫 **pts（点数）**，官方明示是免费服务的配额计量而非真实费用；API 字段名叫 `daily_cost_*_usd`，数值与 pts 完全一致（1 pt ≡ 1 名义美元），插件按 pts 口径展示。
 - **模型选择器 / Agent**：`amd-cloud/DeepSeek-V4-Flash`、`amd-cloud/Qwen3.8-Flash-Next` 等全部聊天模型——模型列表登录后运行时从 `GET /v1/models` 拉取，不写死，新模型上架自动出现。
 - **网关 `GET /v1/magpie/quotas`**：暴露同样的额度信息给外部工具。
 - 401 自动标记账号需要重登、429/5xx 自动故障切换到其他账号或模型，均为 magpie 原生行为，插件不掺和。
@@ -56,7 +56,7 @@
 
 推理档位（`reasoning_effort` → magpie `variants`，模型选择器里切换）：DeepSeek-V4-Flash 六档（minimal→max，默认不思考）、Qwen3.8-Flash-Next 四档（none/low/medium/xhigh，**默认 xhigh 思考**）——其中 `medium`/`low` 已实测接受。其余模型按目录元信息映射（上下文/价格/能力位），目录暂不提供档位信息。
 
-**价格口径与校验**：models.dev 与 magpie 的 `cost` 同为「每百万 token 美元」，本插件把 AMD 目录的每 token 价 ×1e6 换算，并已用 `/v1/usage` 实际计费逐模型核验（输入/输出/缓存读/推理 token 全部与目录价一致；Qwen 的 reasoning token 计入输出计费但在 `completion_tokens` 外单列）。models.dev 的 `amd` 条目价格字段全为 0（未维护），其 `deepseek` 下同名模型是 DeepSeek 官方 API 价（$0.15/$0.60），均与 AMD 云不同——价格以 AMD 目录为准。
+**价格口径与校验**：models.dev 与 magpie 的 `cost` 同为「每百万 token 美元」，本插件把 AMD 目录的每 token 价 ×1e6 换算，并已用 `/v1/usage` 实际计费逐模型核验（输入/输出/缓存读/推理 token 全部与目录价一致；Qwen 的 reasoning token 计入输出计费但在 `completion_tokens` 外单列）。models.dev 的 `amd` 条目价格字段全为 0（未维护），其 `deepseek` 下同名模型是 DeepSeek 官方 API 价（$0.15/$0.60），均与 AMD 云不同——价格以 AMD 目录为准。额度按控制台的 **pts 点数**口径展示（与 API 的 `*_usd` 字段同值，1 pt ≡ 1 名义美元，非真实费用）。
 
 ## 行为差异与已知约束（官方文档 + 实测，接入前值得知道）
 

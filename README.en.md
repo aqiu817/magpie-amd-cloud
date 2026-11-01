@@ -10,7 +10,7 @@ Zero dependencies, zero build: a plain OpenCode v1 provider plugin loaded in pla
 
 - **Plugins → Installed**: an AMD Cloud card (icon, version).
 - **Provider row**: `amd-cloud (AMD Cloud, N models)  signed in`. Logging in again with another key adds another account.
-- **Quota card + `magpie quota`**: a "spend (24h rolling)" window — percent used, `$used / $limit`, reset countdown (rolling period: resets 24 hours after the first billed request of the cycle, not at a fixed midnight); the account shows its organization ID (`oneclick-org-…`).
+- **Quota card + `magpie quota`**: a "points (24h rolling)" window — percent used, `used / limit pts`, reset countdown (rolling period: resets 24 hours after the first billed request of the cycle, not at a fixed midnight); the account shows its organization ID (`oneclick-org-…`). The console labels these numbers **pts (points)** and states outright they are free-tier quota tracking, not charges; the API fields are named `daily_cost_*_usd` but carry the exact same values (1 pt ≡ 1 nominal USD), so the plugin displays them as pts.
 - **Model picker / agents**: `amd-cloud/DeepSeek-V4-Flash`, `amd-cloud/Qwen3.8-Flash-Next` and every other chat model — after sign-in the list is fetched live from `GET /v1/models`, no hardcoded names, new models appear automatically.
 - **Gateway `GET /v1/magpie/quotas`** exposes the same quota to external tooling.
 - 401 marks the account for re-login, 429/5xx fail over to the next account/model — all native magpie behavior.
@@ -56,7 +56,7 @@ The catalog also contains 5 non-chat entries — Clef/d3/d3-flash are Model Ops 
 
 Effort levels (`reasoning_effort` → magpie `variants`, switch in the model picker): DeepSeek-V4-Flash has six (minimal→max, no thinking by default), Qwen3.8-Flash-Next four (none/low/medium/xhigh, **thinking on by default at xhigh**) — `medium`/`low` verified accepted. Other models are mapped from catalog metadata (context/pricing/capabilities); the catalog carries no effort info for them.
 
-**Pricing provenance & verification**: models.dev and magpie both express `cost` as USD per million tokens; the plugin converts AMD's per-token catalog prices ×1e6 and cross-checked them against actual billing via `/v1/usage` (input/output/cache-read/reasoning tokens all match the catalog; Qwen's reasoning tokens are billed as output but reported separately from `completion_tokens`). models.dev's `amd` entry has all costs at 0 (unmaintained), and its `deepseek` entry for the same model names is DeepSeek's own API pricing ($0.15/$0.60) — treat the AMD catalog as the source of truth.
+**Pricing provenance & verification**: models.dev and magpie both express `cost` as USD per million tokens; the plugin converts AMD's per-token catalog prices ×1e6 and cross-checked them against actual billing via `/v1/usage` (input/output/cache-read/reasoning tokens all match the catalog; Qwen's reasoning tokens are billed as output but reported separately from `completion_tokens`). models.dev's `amd` entry has all costs at 0 (unmaintained), and its `deepseek` entry for the same model names is DeepSeek's own API pricing ($0.15/$0.60) — treat the AMD catalog as the source of truth. Quota is displayed in the console's **pts** unit (same values as the API's `*_usd` fields, 1 pt ≡ 1 nominal USD, not real charges).
 
 ## Behavior notes (official docs + real-machine findings)
 

@@ -276,21 +276,23 @@ test("usageToMagpie maps the live /v1/usage response to a rolling window", () =>
   assert.equal(u.user, "oneclick-org-13126")
   assert.equal(u.windows.length, 1)
   const w = u.windows[0]
-  assert.equal(w.name, "花费（24h 滚动）")
+  assert.equal(w.name, "点数（24h 滚动）")
   assert.equal(w.used, 0.4)
   assert.equal(w.limit, 1)
   assert.equal(w.amount, 0.003631599933896723)
-  assert.equal(w.unit, "USD")
+  // 控制台口径：点数（pts），非美元——1 pt ≡ 1 名义美元
+  assert.equal(w.unit, "pts")
+  assert.equal(w.display, "0.0036 / 1 pts")
   assert.equal(w.span, 86400)
   assert.equal(w.resetsAt, "2026-11-02T10:04:33.114Z")
-  assert.equal(w.display, "$0.0036 / $1")
 })
 
 test("usageToMagpie labels non-24h rolling windows", () => {
   const w = usageToMagpie({ ...LIVE_USAGE_OK, window_hours: 12, daily_cost_used_usd: 0.5 }).windows[0]
-  assert.equal(w.name, "花费（12h 滚动）")
+  assert.equal(w.name, "点数（12h 滚动）")
   assert.equal(w.span, 43200)
   assert.equal(w.used, 50)
+  assert.equal(w.display, "0.5 / 1 pts")
 })
 
 test("usageToMagpie falls back to epoch reset when ISO missing", () => {
