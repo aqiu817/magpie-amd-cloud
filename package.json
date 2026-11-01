@@ -1,0 +1,31 @@
+{
+  "name": "magpie-amd-cloud",
+  "version": "0.1.0",
+  "description": "OpenCode provider plugin: AMD Radeon Cloud (AMD GPU Cloud) free shared Model APIs for magpie",
+  "type": "module",
+  "main": "./index.mjs",
+  "files": ["index.mjs", "lib", "README.md", "LICENSE"],
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "magpie",
+    "magpie-plugin",
+    "amd",
+    "amd-cloud",
+    "radeon",
+    "auth",
+    "provider"
+  ],
+  "license": "MIT",
+  "author": "aqiu817",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aqiu817/magpie-amd-cloud.git"
+  },
+  "homepage": "https://github.com/aqiu817/magpie-amd-cloud#readme",
+  "bugs": "https://github.com/aqiu817/magpie-amd-cloud/issues",
+  "magpie": {
+    "icon": "data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%3E%3Cpath%20fill='%23ed1c24'%20d='M8%206h12v12z'/%3E%3Cpath%20fill='%23ed1c24'%20d='M4%2010h6l4%204v6H4z'/%3E%3C/svg%3E",
+    "maxConcurrency": 8
+  }
+}
