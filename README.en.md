@@ -56,6 +56,8 @@ The catalog also contains 5 non-chat entries — Clef/d3/d3-flash are Model Ops 
 
 Effort levels (`reasoning_effort` → magpie `variants`, switch in the model picker): DeepSeek-V4-Flash has six (minimal→max, no thinking by default), Qwen3.8-Flash-Next four (none/low/medium/xhigh, **thinking on by default at xhigh**) — `medium`/`low` verified accepted. Other models are mapped from catalog metadata (context/pricing/capabilities); the catalog carries no effort info for them.
 
+**Pricing provenance & verification**: models.dev and magpie both express `cost` as USD per million tokens; the plugin converts AMD's per-token catalog prices ×1e6 and cross-checked them against actual billing via `/v1/usage` (input/output/cache-read/reasoning tokens all match the catalog; Qwen's reasoning tokens are billed as output but reported separately from `completion_tokens`). models.dev's `amd` entry has all costs at 0 (unmaintained), and its `deepseek` entry for the same model names is DeepSeek's own API pricing ($0.15/$0.60) — treat the AMD catalog as the source of truth.
+
 ## Behavior notes (official docs + real-machine findings)
 
 - **The gateway rebuilds request bodies**: shared endpoints accept a fixed field set (`temperature`, `max_tokens`, `top_p`, `tools`, …); `stop`, `seed`, `top_k`, `logit_bias` etc. are **silently dropped**.

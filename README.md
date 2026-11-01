@@ -56,6 +56,8 @@
 
 推理档位（`reasoning_effort` → magpie `variants`，模型选择器里切换）：DeepSeek-V4-Flash 六档（minimal→max，默认不思考）、Qwen3.8-Flash-Next 四档（none/low/medium/xhigh，**默认 xhigh 思考**）——其中 `medium`/`low` 已实测接受。其余模型按目录元信息映射（上下文/价格/能力位），目录暂不提供档位信息。
 
+**价格口径与校验**：models.dev 与 magpie 的 `cost` 同为「每百万 token 美元」，本插件把 AMD 目录的每 token 价 ×1e6 换算，并已用 `/v1/usage` 实际计费逐模型核验（输入/输出/缓存读/推理 token 全部与目录价一致；Qwen 的 reasoning token 计入输出计费但在 `completion_tokens` 外单列）。models.dev 的 `amd` 条目价格字段全为 0（未维护），其 `deepseek` 下同名模型是 DeepSeek 官方 API 价（$0.15/$0.60），均与 AMD 云不同——价格以 AMD 目录为准。
+
 ## 行为差异与已知约束（官方文档 + 实测，接入前值得知道）
 
 - **请求体会被网关重建**：共享端点只接受固定字段（`temperature`、`max_tokens`、`top_p`、`tools` 等）；`stop`、`seed`、`top_k`、`logit_bias` 等会被**静默丢弃**，不报错也不生效。
