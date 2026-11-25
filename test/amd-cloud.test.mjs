@@ -174,6 +174,158 @@ test("entryToModel keeps base cost when catalog has no pricing (TokenLab shape)"
   assert.deepEqual(cn.cost, { input: 0.14, output: 0.28, cache_read: 0.0028 })
 })
 
+// ---------- model catalog refresh ----------
+
+const FALLBACK = { Fallback: { id: "Fallback" } }
+const catalogResponse = (id) => Response.json({ data: [{ id }] })
+const apiAuth = (key) => ({ auth: { type: "api", key } })
+
+function modelServer(t, fetch) {
+  const originalFetch = globalThis.fetch
+  const originalNow = Date.now
+  let now = Date.UTC(2026, 10, 24)
+  globalThis.fetch = fetch
+  Date.now = () => now
+  t.after(() => {
+    globalThis.fetch = originalFetch
+    Date.now = originalNow
+  })
+  return (ms) => { now += ms }
+}
+
+test("model catalog refreshes after 60 seconds and is isolated by site and key", async (t) => {
+  const calls = []
+  const advance = modelServer(t, async (url, { headers }) => {
+    assert.ok([MODEL_API_BASE + "/models", LAB_MODEL_API_BASE + "/models"].includes(url))
+    calls.push([url, headers.authorization])
+    return catalogResponse("model-" + calls.length)
+  })
+  const cn = (await AmdCloudPlugin()).provider
+  const lab = (await AmdCloudLabPlugin()).provider
+  assert.deepEqual(await cn.models(FALLBACK, {}), FALLBACK)
+  assert.equal(calls.length, 0)
+  const list = async (provider, key) => Object.keys(await provider.models(FALLBACK, apiAuth(key)))
+
+  assert.deepEqual(await list(cn, "cache-key-a"), ["model-1"])
+  advance(59_999)
+  assert.deepEqual(await list(cn, "cache-key-a"), ["model-1"])
+  assert.deepEqual(await list(cn, "cache-key-b"), ["model-2"])
+  assert.deepEqual(await list(lab, "cache-key-a"), ["model-3"])
+  advance(1)
+  assert.deepEqual(await list(cn, "cache-key-a"), ["model-4"])
+  assert.deepEqual(calls, [
+    [MODEL_API_BASE + "/models", "Bearer cache-key-a"],
+    [MODEL_API_BASE + "/models", "Bearer cache-key-b"],
+    [LAB_MODEL_API_BASE + "/models", "Bearer cache-key-a"],
+    [MODEL_API_BASE + "/models", "Bearer cache-key-a"],
+  ])
+})
+
+test("concurrent model queries share one request but keep each caller's model defaults", async (t) => {
+  let requests = 0
+  let release
+  const paused = new Promise((resolve) => { release = resolve })
+  modelServer(t, async () => {
+    requests++
+    await paused
+    return catalogResponse("X")
+  })
+  const one = (await AmdCloudPlugin()).provider
+  const two = (await AmdCloudPlugin()).provider
+  const auth = apiAuth("parallel-key")
+  const results = Promise.all([
+    one.models({ X: { limit: { output: 4096 } } }, auth),
+    two.models({ id: "amd-cloud", models: { X: { limit: { output: 8192 } } } }, auth),
+    one.models(FALLBACK, auth),
+  ])
+  release()
+  const models = await results
+  assert.equal(requests, 1)
+  assert.deepEqual(models.map((m) => m.X.limit.output), [4096, 8192, 16384])
+})
+
+test("429 serves the last good catalog throughout Retry-After without blocking chat or usage", async (t) => {
+  let lists = 0
+  const advance = modelServer(t, async (url) => {
+    if (url === MODEL_API_BASE + "/chat/completions") return Response.json({ object: "chat.completion" })
+    if (url === MODEL_API_BASE + "/usage") return Response.json({ status: "not_available" })
+    assert.equal(url, MODEL_API_BASE + "/models")
+    if (++lists === 2) return new Response(null, { status: 429, headers: { "Retry-After": "120" } })
+    return catalogResponse("model-" + lists)
+  })
+  const hooks = await AmdCloudPlugin()
+  const auth = apiAuth("rate-limited-key")
+  const list = async () => Object.keys(await hooks.provider.models(FALLBACK, auth))
+  assert.deepEqual(await list(), ["model-1"])
+  advance(60_000)
+  assert.deepEqual(await Promise.all([list(), list(), list()]), [["model-1"], ["model-1"], ["model-1"]])
+  const loader = await hooks.auth.loader(async () => auth.auth)
+  const chat = await loader.fetch(MODEL_API_BASE + "/chat/completions", { method: "POST" })
+  assert.equal((await chat.json()).object, "chat.completion")
+  assert.match((await hooks.auth.usage(async () => auth.auth)).error, /暂不可用/)
+  advance(119_999)
+  assert.deepEqual(await list(), ["model-1"])
+  assert.equal(lists, 2)
+  advance(1)
+  assert.deepEqual(await list(), ["model-3"])
+})
+
+const cold429Cases = [
+  ["HTTP date", () => new Date(Date.now() + 90_000).toUTCString(), 90_000],
+  ["missing header", () => null, 60_000],
+  ["malformed header", () => "bad", 60_000],
+  ["short delay", () => "5", 60_000],
+]
+
+for (const [name, header, delay] of cold429Cases) {
+  test(`cold 429 with ${name} serves Magpie fallback until refresh is allowed`, async (t) => {
+    let requests = 0
+    const advance = modelServer(t, async () => {
+      const retryAfter = header()
+      if (++requests === 1) {
+        return new Response(null, {
+          status: 429,
+          headers: retryAfter == null ? {} : { "Retry-After": retryAfter },
+        })
+      }
+      return catalogResponse("recovered")
+    })
+    const { provider } = await AmdCloudLabPlugin()
+    const supplied = { id: "amd-cloud-lab", models: FALLBACK }
+    const list = () => provider.models(supplied, apiAuth("cold-" + name))
+    assert.equal(await provider.models(supplied), FALLBACK)
+    for (const elapsed of [0, delay - 1]) {
+      advance(elapsed)
+      const models = await list()
+      assert.deepEqual(Object.keys(models), ["Fallback"])
+      assert.equal(models[Symbol.for("magpie.fellBack")], true)
+      assert.equal(requests, 1)
+    }
+    advance(1)
+    assert.deepEqual(Object.keys(await list()), ["recovered"])
+    assert.equal(requests, 2)
+  })
+}
+
+test("invalid catalog responses neither replace the last good catalog nor trigger a request burst", async (t) => {
+  let requests = 0
+  const advance = modelServer(t, async () => {
+    if (++requests === 2) return Response.json({ data: [] })
+    if (requests === 3) return new Response(null, { status: 429, headers: { "Retry-After": "60" } })
+    return catalogResponse("last-good")
+  })
+  const { provider } = await AmdCloudPlugin()
+  const list = () => provider.models(FALLBACK, apiAuth("invalid-catalog-key"))
+  assert.deepEqual(Object.keys(await list()), ["last-good"])
+  advance(60_000)
+  assert.equal(await list(), FALLBACK)
+  assert.equal(await list(), FALLBACK)
+  assert.equal(requests, 2)
+  advance(60_000)
+  assert.deepEqual(Object.keys(await list()), ["last-good"])
+  assert.equal(requests, 3)
+})
+
 test("fetchJSON sets Bearer and UA headers", async () => {
   const calls = []
   const orig = globalThis.fetch

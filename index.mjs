@@ -29,6 +29,13 @@ import { recordCost, estimateWindow, setLedgerDir, costOfResponse, costOfStreamT
 
 // 官方限流：每密钥 30 RPM / 8 并发（国内站文档）；账号 20 RPM。两站共用口径。
 const MAX_CONCURRENCY = 8
+const MODEL_REFRESH_MS = 60_000
+
+function retryDelay(header, now) {
+  const value = header?.trim() ?? ""
+  const delay = /^\d+$/.test(value) ? Number(value) * 1000 : Date.parse(value) - now
+  return Number.isFinite(delay) ? Math.max(MODEL_REFRESH_MS, delay) : MODEL_REFRESH_MS
+}
 
 // lab 的 fetch：透传请求，并从响应里抓 usage.cost（TokenLab 自报的 points 消耗，
 // 非标字段）按账号持久化累计——magpie 网关不认识该字段，插件自己记账给 usage 钩子用。
@@ -86,6 +93,39 @@ function labFetch(key) {
 // 两个供应商共享同一套钩子形状，只差 id / 展示名 / baseURL / 兜底表 / usage 实现 / key 形状 /
 // fetch 形状（lab 要在响应里抓 points 记账）。
 function makePlugin({ provider, name, base, fallbacks, usage, keyPlaceholder = "rc-…", makeFetch }) {
+  // 站点由工厂隔离；同一 key 只保留一份目录和一次在途刷新。
+  const catalogs = new Map()
+
+  async function listModels(key) {
+    let entry = catalogs.get(key)
+    if (!entry) {
+      entry = { refreshAt: 0 }
+      catalogs.set(key, entry)
+    }
+    if (entry.pending) return entry.pending
+    if (Date.now() < entry.refreshAt) return entry.current
+
+    entry.pending = (async () => {
+      const res = await fetchJSON(`${base}/models`, key)
+      const now = Date.now()
+      entry.refreshAt = now + (res.status === 429 ? retryDelay(res.retryAfter, now) : MODEL_REFRESH_MS)
+      entry.current = undefined
+      if (res.status === 429) {
+        entry.current = entry.lastGood
+      } else if (res.ok) {
+        try {
+          // 验证目录后再缓存原始响应，保留每个调用方自己的模型默认值。
+          catalogToModels(res.data)
+          entry.current = entry.lastGood = res.data
+        } catch {
+          // 空目录或无聊天模型时，保留上一次成功的目录供 429 使用。
+        }
+      }
+      return entry.current
+    })().finally(() => { entry.pending = undefined })
+    return entry.pending
+  }
+
   return async function plugin({ directory } = {}) {
     // 两站都可能需要知道配置目录（lab 用于账本）；有 directory 就设上，
     // points.mjs 也有固定路径兜底所以不传也能工作。
@@ -126,18 +166,17 @@ function makePlugin({ provider, name, base, fallbacks, usage, keyPlaceholder = "
         usage,
       },
 
-      // 每个账号的模型：运行时拉共享目录（官方要求不写死模型名），失败保留静态列表。
       provider: {
         id: provider,
         async models(providerModels, { auth } = {}) {
-          if (auth?.type !== "api") return providerModels
-          try {
-            const res = await fetchJSON(`${base}/models`, auth.key)
-            if (!res.ok) return providerModels
-            return catalogToModels(res.data, providerModels)
-          } catch {
-            return providerModels
-          }
+          const hostProvider = providerModels.id === provider
+          const defaults = hostProvider ? providerModels.models : providerModels
+          if (auth?.type !== "api" || !auth.key) return defaults
+          const catalog = await listModels(auth.key)
+          if (catalog) return catalogToModels(catalog, defaults)
+          if (!hostProvider) return defaults
+          // 告诉 magpie 静态表不是实时目录，即使本次查询没有发 HTTP 请求。
+          return { ...defaults, [Symbol.for("magpie.fellBack")]: true }
         },
       },
     }
